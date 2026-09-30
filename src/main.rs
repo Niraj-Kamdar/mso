@@ -45,6 +45,11 @@ enum Commands {
         #[command(subcommand)]
         action: KeyCommands,
     },
+    /// Check health of running MSO instance (used for container HEALTHCHECK)
+    Health {
+        #[arg(long, default_value = "http://127.0.0.1:4000/health")]
+        url: String,
+    },
 }
 
 #[derive(Subcommand)]
@@ -209,6 +214,26 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
                 }
             }
         },
+
+        Commands::Health { url } => {
+            let client = reqwest::Client::builder()
+                .timeout(std::time::Duration::from_secs(3))
+                .build()?;
+            match client.get(&url).send().await {
+                Ok(resp) if resp.status().is_success() => {
+                    println!("mso healthy (status: {})", resp.status());
+                    std::process::exit(0);
+                }
+                Ok(resp) => {
+                    eprintln!("mso unhealthy (status: {})", resp.status());
+                    std::process::exit(1);
+                }
+                Err(e) => {
+                    eprintln!("mso unreachable: {}", e);
+                    std::process::exit(1);
+                }
+            }
+        }
     }
 
     Ok(())
