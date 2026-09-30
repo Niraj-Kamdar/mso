@@ -1,7 +1,7 @@
 # =============================================================================
 # Stage 1: Build Environment
 # =============================================================================
-FROM rust:1.85-bookworm AS builder
+FROM rust:bookworm AS builder
 
 # Install protobuf compiler required by tonic-build / prost-build
 RUN apt-get update && apt-get install -y --no-install-recommends \
