@@ -2,6 +2,14 @@
 name = "mso"
 version = "0.1.0"
 edition = "2021"
+authors = ["Niraj Kamdar <niraj@metasquare.tech>"]
+license = "MIT"
+description = "Metasquare Oracle (mso) - High-performance multi-tier oracle microservice for crypto, commodities, and synthetic assets"
+repository = "https://github.com/Niraj-Kamdar/mso"
+homepage = "https://github.com/Niraj-Kamdar/mso"
+readme = "README.md"
+keywords = ["oracle", "crypto", "solana", "trading", "grpc"]
+categories = ["cryptography::cryptocurrencies", "network-programming", "web-programming"]
 
 [dependencies]
 tokio = { version = "1", features = ["full"] }

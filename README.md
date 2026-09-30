@@ -1,5 +1,10 @@
 # Metasquare Oracle (`mso`)
 
+[![CI](https://github.com/Niraj-Kamdar/mso/actions/workflows/ci.yml/badge.svg)](https://github.com/Niraj-Kamdar/mso/actions/workflows/ci.yml)
+[![Docker](https://github.com/Niraj-Kamdar/mso/actions/workflows/docker-publish.yml/badge.svg)](https://github.com/Niraj-Kamdar/mso/actions/workflows/docker-publish.yml)
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
+[![Container Image](https://img.shields.io/badge/ghcr.io-niraj--kamdar%2Fmso-blue?logo=docker)](https://github.com/Niraj-Kamdar/mso/pkgs/container/mso)
+
 Self-hosted, high-performance, multi-asset oracle microservice designed for low-latency decentralized applications and prediction markets. Runs efficiently on lightweight Linux nodes (Raspberry Pi 5 with NVMe SSD) and exposes real-time streaming and REST gateways through Cloudflare Tunnels.
 
 ---
@@ -25,8 +30,37 @@ Self-hosted, high-performance, multi-asset oracle microservice designed for low-
 
 ## Quickstart
 
-### 1. Build & Run
+### Option A: Run via Docker (Recommended)
+
+Pre-built multi-arch images (`linux/amd64` and `linux/arm64` for Raspberry Pi) are published automatically to GitHub Packages:
+
 ```bash
+docker run -d \
+  --name metasquare-oracle \
+  --restart unless-stopped \
+  -p 4000:4000 \
+  -p 50051:50051 \
+  -v mso-data:/data \
+  ghcr.io/niraj-kamdar/mso:latest
+```
+
+### Option B: Run via Docker Compose
+
+```bash
+# Clone the repository
+git clone https://github.com/Niraj-Kamdar/mso.git
+cd mso
+
+# Start in background with persistent volume
+docker compose up -d
+```
+
+### Option C: Build & Run from Source (Native)
+
+```bash
+# Prerequisites: Rust 1.80+ and protoc
+# On Debian/Ubuntu/Raspberry Pi OS: sudo apt install -y protobuf-compiler
+
 # Build release binary
 cargo build --release
 
@@ -34,15 +68,21 @@ cargo build --release
 ./target/release/mso serve
 ```
 
-### 2. Manage API Keys
+---
+
+## API Key Management
+
 ```bash
-# Generate a new API key for downstream consumer
+# When running via Docker:
+docker exec -it metasquare-oracle mso key create --app pnl-backend --ttl-days 30
+
+# When running locally:
 ./target/release/mso key create --app pnl-backend --ttl-days 30
 
-# List all keys and quota status
+# List all keys and quota status:
 ./target/release/mso key list
 
-# Revoke a key
+# Revoke a key:
 ./target/release/mso key revoke --id <KEY_ID>
 ```
 
@@ -94,3 +134,9 @@ ingress:
     service: http://localhost:4000
   - service: http_status:404
 ```
+
+---
+
+## License
+
+This project is licensed under the [MIT License](LICENSE).

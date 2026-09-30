@@ -1,0 +1,28 @@
+services:
+  mso:
+    image: ghcr.io/niraj-kamdar/mso:latest
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: metasquare-oracle
+    restart: unless-stopped
+    ports:
+      - "4000:4000"    # Axum REST API Gateway & Live Status Dashboard
+      - "50051:50051"  # Tonic gRPC Streaming & Unary Service
+    volumes:
+      - mso-data:/data
+    environment:
+      - MSO_HTTP_ADDR=0.0.0.0:4000
+      - MSO_GRPC_ADDR=0.0.0.0:50051
+      - MSO_DB_PATH=/data/oracle.db
+      - RUST_LOG=info
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:4000/health"]
+      interval: 15s
+      timeout: 3s
+      retries: 3
+      start_period: 5s
+
+volumes:
+  mso-data:
+    driver: local
