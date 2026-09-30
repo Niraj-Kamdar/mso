@@ -1,0 +1,101 @@
+syntax = "proto3";
+
+package oracle.v1;
+
+service OracleService {
+  // Unary current price fetch with smart TTL clamping
+  rpc GetPrice (PriceRequest) returns (PriceResponse);
+
+  // High-frequency server-streaming
+  rpc StreamPrices (StreamRequest) returns (stream PriceTick);
+
+  // Multi-resolution candle history (1s, 1m, 1h, 1d)
+  rpc GetCandles (CandleRequest) returns (CandleResponse);
+
+  // Strictly bounded rolling statistics (High, Low, TWAP)
+  rpc GetStats (StatsRequest) returns (StatsResponse);
+
+  // Fast flat ticks for SVG sparklines
+  rpc GetTicks (TicksRequest) returns (TicksResponse);
+}
+
+message PriceRequest {
+  string symbol = 1;               // e.g. "SOL/USD"
+  optional uint64 max_age_ms = 2;  // Client-requested TTL
+}
+
+message PriceResponse {
+  string symbol = 1;
+  double price = 2;
+  int64 timestamp = 3;             // Source epoch ms
+  string source = 4;               // "binance-ws", "jupiter-rwa", "hyperliquid"
+  bool is_stale = 5;
+}
+
+message StreamRequest {
+  string symbol = 1;
+  uint32 interval_ms = 2;
+}
+
+message PriceTick {
+  string symbol = 1;
+  double price = 2;
+  int64 timestamp = 3;
+}
+
+enum CandleInterval {
+  INTERVAL_UNSPECIFIED = 0;
+  INTERVAL_1S = 1;
+  INTERVAL_1M = 2;
+  INTERVAL_1H = 3;
+  INTERVAL_1D = 4;
+}
+
+message CandleRequest {
+  string symbol = 1;
+  CandleInterval interval = 2;
+  int32 limit = 3;                 // Min 1, Max 300
+}
+
+message Candle {
+  int64 timestamp = 1;
+  double open = 2;
+  double high = 3;
+  double low = 4;
+  double close = 5;
+  double twap = 6;
+  int32 tick_count = 7;
+}
+
+message CandleResponse {
+  string symbol = 1;
+  CandleInterval interval = 2;
+  repeated Candle candles = 3;
+}
+
+message StatsRequest {
+  string symbol = 1;
+  uint64 window_ms = 2;            // Min 10,000ms (10s), Max 86,400,000ms (24h)
+}
+
+message StatsResponse {
+  string symbol = 1;
+  double high = 2;
+  double low = 3;
+  double twap = 4;
+  int32 tick_count = 5;
+  double open_price = 6;
+  double current_price = 7;
+  double return_pct = 8;
+  int64 since_timestamp = 9;
+}
+
+message TicksRequest {
+  string symbol = 1;
+  int32 limit = 2;                 // Min 1, Max 300 (Default 60)
+}
+
+message TicksResponse {
+  string symbol = 1;
+  repeated PriceTick samples = 2;
+}
