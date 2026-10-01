@@ -234,9 +234,10 @@ pub fn run_downsampling_rollups(conn: &Connection) -> Result<()> {
         .unwrap()
         .as_millis() as i64;
 
-    let one_day_ago = now - crate::config::RETENTION_TICKS_MS;
-    let seven_days_ago = now - crate::config::RETENTION_CANDLES_1M_MS;
-    let ninety_days_ago = now - crate::config::RETENTION_CANDLES_1H_MS;
+    let retention = &crate::config::get().retention;
+    let one_day_ago = now - retention.ticks_ms();
+    let seven_days_ago = now - retention.candles_1m_ms();
+    let ninety_days_ago = now - retention.candles_1h_ms();
 
     // 1. Rollup raw ticks into completed 1-minute candles
     conn.execute_batch(
@@ -358,7 +359,7 @@ mod tests {
         insert_tick(&conn, "BTC/USD", base_minute + 45_000, 80_200.0, "binance-batch").unwrap();
 
         // Also insert an ancient tick (> 24 hours ago) that should get pruned
-        let ancient = now - (crate::config::RETENTION_TICKS_MS + 10_000);
+        let ancient = now - (crate::config::get().retention.ticks_ms() + 10_000);
         insert_tick(&conn, "BTC/USD", ancient, 50_000.0, "binance-batch").unwrap();
 
         // Run rollups and pruning

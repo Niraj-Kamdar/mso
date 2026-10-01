@@ -5,7 +5,7 @@ use crate::config::{
 
 #[derive(Debug, thiserror::Error)]
 pub enum ValidationError {
-    #[error("Unsupported symbol: '{0}'. Supported: SOL/USD, BTC/USD, ETH/USD, HYPE/USD, ZEC/USD, PAXG/USD, SPY/USD, NVDA/USD, GOOG/USD, QQQ/USD, TSLA/USD")]
+    #[error("Unsupported symbol: '{0}'. Supported: {}", crate::config::supported_symbols())]
     InvalidSymbol(String),
     #[error("Invalid interval: '{0}'. Supported: 1s, 1m, 1h, 1d")]
     InvalidInterval(String),

@@ -1,0 +1,93 @@
+# mso configuration. This file is the built-in default.
+# Start with `mso serve --config mso.toml` (or MSO_CONFIG=mso.toml).
+# A custom file only needs the keys it changes. Tables merge key by key;
+# `assets` is replaced as a whole when present.
+
+# Poll frequency (seconds) for each REST source. `binance-ws` is a push
+# stream (~1s) and has no interval.
+[poll_secs]
+binance = 60
+hyperliquid = 60
+jupiter = 60
+yahoo = 60
+
+[retention]
+ticks_hours = 24
+candles_1m_days = 7
+candles_1h_days = 90
+
+# One entry per served symbol.
+#   source: binance-ws | binance | hyperliquid | jupiter | yahoo
+#   id:     identifier at that source:
+#           binance pair (SOLUSDT), hyperliquid coin (HYPE),
+#           Solana mint (jupiter), ticker (yahoo)
+#   fallback (optional): another source + id used only while the primary
+#           price is older than max(2 x primary resolution, 5s).
+#           Hyperliquid fallbacks are perp mid prices (small basis vs spot).
+
+[[assets]]
+symbol = "SOL/USD"
+source = "binance-ws"
+id = "SOLUSDT"
+fallback = { source = "hyperliquid", id = "SOL" }
+
+[[assets]]
+symbol = "BTC/USD"
+source = "binance"
+id = "BTCUSDT"
+fallback = { source = "hyperliquid", id = "BTC" }
+
+[[assets]]
+symbol = "ETH/USD"
+source = "binance"
+id = "ETHUSDT"
+fallback = { source = "hyperliquid", id = "ETH" }
+
+[[assets]]
+symbol = "ZEC/USD"
+source = "binance"
+id = "ZECUSDT"
+fallback = { source = "hyperliquid", id = "ZEC" }
+
+[[assets]]
+symbol = "PAXG/USD"
+source = "binance"
+id = "PAXGUSDT"
+fallback = { source = "jupiter", id = "5GgRAEmv8ZxF2PR5hY72Qs5x1bnQ6UK2RbTPoqJ3wSwW" } # native Paxos PAXG
+
+[[assets]]
+symbol = "HYPE/USD"
+source = "hyperliquid"
+id = "HYPE"
+fallback = { source = "binance", id = "HYPEUSDT" }
+
+# Backed Finance xStocks (Token-2022 mints), 24/7 via Jupiter with Yahoo fallback.
+[[assets]]
+symbol = "SPY/USD"
+source = "jupiter"
+id = "XsoCS1TfEyfFhfvj8EtZ528L3CaKBDBRqRapnBbDF2W"
+fallback = { source = "yahoo", id = "SPY" }
+
+[[assets]]
+symbol = "NVDA/USD"
+source = "jupiter"
+id = "Xsc9qvGR1efVDFGLrVsmkzv3qi45LTBjeUKSPmx9qEh"
+fallback = { source = "yahoo", id = "NVDA" }
+
+[[assets]]
+symbol = "GOOG/USD"
+source = "jupiter"
+id = "XsCPL9dNWBMvFtTmwcCA5v3xWPSMEBCszbQdiLLq6aN"
+fallback = { source = "yahoo", id = "GOOGL" }
+
+[[assets]]
+symbol = "QQQ/USD"
+source = "jupiter"
+id = "Xs8S1uUs1zvS2p7iwtsG3b6fkhpvmwz4GYU3gWAmWHZ"
+fallback = { source = "yahoo", id = "QQQ" }
+
+[[assets]]
+symbol = "TSLA/USD"
+source = "jupiter"
+id = "XsDoVfqeBukxuZHWhdvWHBhgEHjGNst4MLodqsJHzoB"
+fallback = { source = "yahoo", id = "TSLA" }

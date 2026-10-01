@@ -39,6 +39,10 @@ enum Commands {
 
         #[arg(long, env = "MSO_DB_PATH", default_value = "oracle.db")]
         db: String,
+
+        /// TOML config (assets, poll frequency, retention). Built-in default when omitted.
+        #[arg(long, env = "MSO_CONFIG")]
+        config: Option<String>,
     },
     /// Manage API keys (create, revoke, list)
     Key {
@@ -94,6 +98,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         http_addr: std::env::var("MSO_HTTP_ADDR").unwrap_or_else(|_| "0.0.0.0:4000".to_string()),
         grpc_addr: std::env::var("MSO_GRPC_ADDR").unwrap_or_else(|_| "0.0.0.0:50051".to_string()),
         db: std::env::var("MSO_DB_PATH").unwrap_or_else(|_| "oracle.db".to_string()),
+        config: std::env::var("MSO_CONFIG").ok(),
     });
 
     match command {
@@ -101,11 +106,20 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
             http_addr,
             grpc_addr,
             db,
+            config,
         } => {
+            config::init(config::Config::load(config.as_deref())?);
+
             info!("=====================================================");
             info!("  Starting Metasquare Oracle (mso) v0.1.0            ");
             info!("  Host: Raspberry Pi 5 / NVMe SSD / Cloudflare Edge   ");
             info!("=====================================================");
+            info!(
+                "Config: {} ({} assets: {})",
+                config.as_deref().unwrap_or("built-in default"),
+                config::get().assets.len(),
+                config::supported_symbols()
+            );
 
             let db_mgr = DbManager::new(&db)?;
             let auth_mgr = AuthManager::new(db_mgr.clone())?;

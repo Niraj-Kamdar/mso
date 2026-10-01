@@ -463,7 +463,7 @@ async fn openapi_handler() -> impl IntoResponse {
                             "required": false,
                             "schema": {
                                 "type": "string",
-                                "enum": ["SOL/USD", "BTC/USD", "ETH/USD", "HYPE/USD", "ZEC/USD", "PAXG/USD", "SPY/USD", "NVDA/USD", "GOOG/USD", "QQQ/USD", "TSLA/USD"],
+                                "enum": crate::config::get().assets.iter().map(|a| a.symbol.as_str()).collect::<Vec<_>>(),
                                 "default": "SOL/USD"
                             },
                             "description": "Supported market symbol"
