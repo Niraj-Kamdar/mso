@@ -4,7 +4,8 @@ use tokio::time::{sleep, Duration};
 use tokio_tungstenite::connect_async;
 use tracing::{error, info, warn};
 
-use super::FeedCoordinator;
+use super::{now_ms, FeedCoordinator};
+use crate::config::Source;
 
 #[derive(Deserialize)]
 struct BinanceTickerMessage {
@@ -16,37 +17,38 @@ struct BinanceTickerMessage {
     event_time: Option<i64>,
 }
 
+// Combined-stream envelope: {"stream": "...", "data": {...}}
+#[derive(Deserialize)]
+struct CombinedMessage {
+    data: BinanceTickerMessage,
+}
+
 #[derive(Deserialize)]
 struct BinanceBatchItem {
     symbol: String,
     price: String,
 }
 
-pub async fn start_sol_ws(coord: FeedCoordinator) {
-    let url = "wss://stream.binance.com:9443/ws/solusdt@ticker";
+/// Streams 1s tickers for `pairs` (e.g. SOLUSDT) over one combined WebSocket.
+pub async fn start_ws(coord: FeedCoordinator, pairs: Vec<String>) {
+    let streams: Vec<String> = pairs.iter().map(|p| format!("{}@ticker", p.to_lowercase())).collect();
+    let url = format!("wss://stream.binance.com:9443/stream?streams={}", streams.join("/"));
 
     loop {
-        info!("[Binance] Connecting to SOL/USDT 1s WebSocket stream...");
-        match connect_async(url).await {
+        info!("[Binance] Connecting to ticker stream for {}...", pairs.join(", "));
+        match connect_async(&url).await {
             Ok((ws_stream, _)) => {
-                info!("[Binance] Connected to SOL/USDT stream!");
+                info!("[Binance] Connected to ticker stream!");
                 let (_, mut read) = ws_stream.split();
 
                 while let Some(msg) = read.next().await {
                     match msg {
                         Ok(tokio_tungstenite::tungstenite::Message::Text(text)) => {
-                            if let Ok(ticker) = serde_json::from_str::<BinanceTickerMessage>(&text) {
+                            if let Ok(CombinedMessage { data: ticker }) = serde_json::from_str(&text) {
                                 if let (Some(price_str), Some(sym)) = (ticker.close_price, ticker.symbol) {
-                                    if sym == "SOLUSDT" {
-                                        if let Ok(price) = price_str.parse::<f64>() {
-                                            let now = ticker.event_time.unwrap_or_else(|| {
-                                                std::time::SystemTime::now()
-                                                    .duration_since(std::time::UNIX_EPOCH)
-                                                    .unwrap()
-                                                    .as_millis() as i64
-                                            });
-                                            coord.record_tick("SOL/USD", price, now, "binance-ws");
-                                        }
+                                    if let Ok(price) = price_str.parse::<f64>() {
+                                        let ts = ticker.event_time.unwrap_or_else(now_ms);
+                                        coord.ingest(Source::BinanceWs, &sym, price, ts);
                                     }
                                 }
                             }
@@ -75,60 +77,20 @@ pub async fn start_sol_ws(coord: FeedCoordinator) {
     }
 }
 
-pub async fn start_batch_poller(coord: FeedCoordinator) {
-    let client = reqwest::Client::builder()
-        .timeout(Duration::from_secs(5))
-        .build()
-        .unwrap();
-
-    let symbols_query = urlencoding::encode("[\"BTCUSDT\",\"ETHUSDT\",\"ZECUSDT\",\"PAXGUSDT\"]");
-    let url = format!(
-        "https://api.binance.com/api/v3/ticker/price?symbols={}",
-        symbols_query
-    );
-
-    let mut interval = tokio::time::interval(Duration::from_secs(60));
-
-    loop {
-        interval.tick().await;
-
-        match client.get(&url).send().await {
-            Ok(resp) => {
-                if resp.status().is_success() {
-                    if let Ok(items) = resp.json::<Vec<BinanceBatchItem>>().await {
-                        let now = std::time::SystemTime::now()
-                            .duration_since(std::time::UNIX_EPOCH)
-                            .unwrap()
-                            .as_millis() as i64;
-
-                        for item in items {
-                            if let Ok(price) = item.price.parse::<f64>() {
-                                let standard_sym = match item.symbol.as_str() {
-                                    "BTCUSDT" => "BTC/USD",
-                                    "ETHUSDT" => "ETH/USD",
-                                    "ZECUSDT" => "ZEC/USD",
-                                    "PAXGUSDT" => "PAXG/USD",
-                                    _ => continue,
-                                };
-                                coord.record_tick(standard_sym, price, now, "binance-batch");
-                            }
-                        }
-                    }
-                } else {
-                    warn!("[Binance] Batch poll returned status {}", resp.status());
-                }
-            }
-            Err(e) => {
-                warn!("[Binance] Batch poll request error: {}", e);
-            }
-        }
+pub async fn fetch_batch(client: &reqwest::Client, pairs: &[String]) -> Result<Vec<(String, f64)>, String> {
+    let symbols = serde_json::to_string(pairs).unwrap();
+    let resp = client
+        .get("https://api.binance.com/api/v3/ticker/price")
+        .query(&[("symbols", symbols)])
+        .send()
+        .await
+        .map_err(|e| e.to_string())?;
+    if !resp.status().is_success() {
+        return Err(format!("status {}", resp.status()));
     }
-}
-
-mod urlencoding {
-    pub fn encode(s: &str) -> String {
-        s.replace('[', "%5B")
-            .replace(']', "%5D")
-            .replace('"', "%22")
-    }
+    let items: Vec<BinanceBatchItem> = resp.json().await.map_err(|e| e.to_string())?;
+    Ok(items
+        .into_iter()
+        .filter_map(|i| Some((i.symbol, i.price.parse().ok()?)))
+        .collect())
 }
