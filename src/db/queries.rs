@@ -245,10 +245,10 @@ pub fn run_downsampling_rollups(conn: &Connection) -> Result<()> {
         SELECT 
             symbol,
             (t / 60000) * 60000 AS minute_t,
-            (SELECT price FROM ticks t_in WHERE t_in.symbol = ticks.symbol AND t_in.t >= (ticks.t / 60000) * 60000 ORDER BY t_in.t ASC LIMIT 1) AS open,
+            (SELECT price FROM ticks t_in WHERE t_in.symbol = ticks.symbol AND t_in.t >= (ticks.t / 60000) * 60000 AND t_in.t < ((ticks.t / 60000) + 1) * 60000 ORDER BY t_in.t ASC LIMIT 1) AS open,
             MAX(price) AS high,
             MIN(price) AS low,
-            (SELECT price FROM ticks t_in WHERE t_in.symbol = ticks.symbol AND t_in.t < ((ticks.t / 60000) + 1) * 60000 ORDER BY t_in.t DESC LIMIT 1) AS close,
+            (SELECT price FROM ticks t_in WHERE t_in.symbol = ticks.symbol AND t_in.t >= (ticks.t / 60000) * 60000 AND t_in.t < ((ticks.t / 60000) + 1) * 60000 ORDER BY t_in.t DESC LIMIT 1) AS close,
             AVG(price) AS twap,
             COUNT(*) AS tick_count
         FROM ticks
@@ -260,10 +260,10 @@ pub fn run_downsampling_rollups(conn: &Connection) -> Result<()> {
         SELECT 
             symbol,
             (t / 3600000) * 3600000 AS hour_t,
-            (SELECT open FROM candles_1m c_in WHERE c_in.symbol = candles_1m.symbol AND c_in.t >= (candles_1m.t / 3600000) * 3600000 ORDER BY c_in.t ASC LIMIT 1),
+            (SELECT open FROM candles_1m c_in WHERE c_in.symbol = candles_1m.symbol AND c_in.t >= (candles_1m.t / 3600000) * 3600000 AND c_in.t < ((candles_1m.t / 3600000) + 1) * 3600000 ORDER BY c_in.t ASC LIMIT 1),
             MAX(high),
             MIN(low),
-            (SELECT close FROM candles_1m c_in WHERE c_in.symbol = candles_1m.symbol AND c_in.t < ((candles_1m.t / 3600000) + 1) * 3600000 ORDER BY c_in.t DESC LIMIT 1),
+            (SELECT close FROM candles_1m c_in WHERE c_in.symbol = candles_1m.symbol AND c_in.t >= (candles_1m.t / 3600000) * 3600000 AND c_in.t < ((candles_1m.t / 3600000) + 1) * 3600000 ORDER BY c_in.t DESC LIMIT 1),
             AVG(twap),
             SUM(tick_count)
         FROM candles_1m
@@ -275,10 +275,10 @@ pub fn run_downsampling_rollups(conn: &Connection) -> Result<()> {
         SELECT 
             symbol,
             (t / 86400000) * 86400000 AS day_t,
-            (SELECT open FROM candles_1h c_in WHERE c_in.symbol = candles_1h.symbol AND c_in.t >= (candles_1h.t / 86400000) * 86400000 ORDER BY c_in.t ASC LIMIT 1),
+            (SELECT open FROM candles_1h c_in WHERE c_in.symbol = candles_1h.symbol AND c_in.t >= (candles_1h.t / 86400000) * 86400000 AND c_in.t < ((candles_1h.t / 86400000) + 1) * 86400000 ORDER BY c_in.t ASC LIMIT 1),
             MAX(high),
             MIN(low),
-            (SELECT close FROM candles_1h c_in WHERE c_in.symbol = candles_1h.symbol AND c_in.t < ((candles_1h.t / 86400000) + 1) * 86400000 ORDER BY c_in.t DESC LIMIT 1),
+            (SELECT close FROM candles_1h c_in WHERE c_in.symbol = candles_1h.symbol AND c_in.t >= (candles_1h.t / 86400000) * 86400000 AND c_in.t < ((candles_1h.t / 86400000) + 1) * 86400000 ORDER BY c_in.t DESC LIMIT 1),
             AVG(twap),
             SUM(tick_count)
         FROM candles_1h
@@ -338,5 +338,46 @@ mod tests {
         assert_eq!(stats.current_price, 160.0);
         // (160 - 150) / 150 * 100 = 6.666...%
         assert!((stats.return_pct - 6.6666).abs() < 0.01);
+    }
+
+    #[test]
+    fn test_downsampling_rollups_and_pruning() {
+        let conn = Connection::open_in_memory().unwrap();
+        init_schema(&conn).unwrap();
+
+        let now = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_millis() as i64;
+
+        // Align to a minute boundary 2 minutes in the past
+        let base_minute = (now / 60_000 - 2) * 60_000;
+        insert_tick(&conn, "BTC/USD", base_minute + 5_000, 80_000.0, "binance-batch").unwrap();
+        insert_tick(&conn, "BTC/USD", base_minute + 15_000, 80_500.0, "binance-batch").unwrap();
+        insert_tick(&conn, "BTC/USD", base_minute + 30_000, 79_500.0, "binance-batch").unwrap();
+        insert_tick(&conn, "BTC/USD", base_minute + 45_000, 80_200.0, "binance-batch").unwrap();
+
+        // Also insert an ancient tick (> 24 hours ago) that should get pruned
+        let ancient = now - (crate::config::RETENTION_TICKS_MS + 10_000);
+        insert_tick(&conn, "BTC/USD", ancient, 50_000.0, "binance-batch").unwrap();
+
+        // Run rollups and pruning
+        run_downsampling_rollups(&conn).unwrap();
+
+        // 1. Verify 1m candle was generated for the 2-minutes-ago bucket (chronological order)
+        let candles = get_candles(&conn, "candles_1m", "BTC/USD", 10).unwrap();
+        assert!(!candles.is_empty());
+        let c = candles.last().unwrap();
+        assert_eq!(c.open, 80_000.0);
+        assert_eq!(c.high, 80_500.0);
+        assert_eq!(c.low, 79_500.0);
+        assert_eq!(c.close, 80_200.0);
+        assert_eq!(c.tick_count, 4);
+
+        // 2. Verify ancient tick was pruned
+        let check_ancient: i32 = conn
+            .query_row("SELECT COUNT(*) FROM ticks WHERE t = ?1", params![ancient], |r| r.get(0))
+            .unwrap();
+        assert_eq!(check_ancient, 0);
     }
 }

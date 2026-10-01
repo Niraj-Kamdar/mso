@@ -312,3 +312,105 @@ async fn dashboard_handler() -> Html<&'static str> {
     </html>
     "#)
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use axum::http::Request;
+    use tower::ServiceExt;
+    use crate::db::DbManager;
+
+    #[tokio::test]
+    async fn test_rest_endpoints() {
+        let db = DbManager::in_memory().unwrap();
+        let auth = AuthManager::new(db.clone()).unwrap();
+        let feed = FeedCoordinator::new(db.clone());
+
+        // Create an API key
+        let (_id, secret) = auth.create_key("integration-test-app", None).unwrap();
+
+        // Record a tick into L1 cache and DB
+        feed.record_tick("SOL/USD", 150.50, 1700000000000, "test-feed");
+
+        let app = create_rest_router(feed, auth);
+
+        // 1. Test /health (public, no auth)
+        let response = app
+            .clone()
+            .oneshot(
+                Request::builder()
+                    .uri("/health")
+                    .body(axum::body::Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(response.status(), StatusCode::OK);
+
+        // 2. Test /api/v1/price without API key -> 401 Unauthorized
+        let unauth = app
+            .clone()
+            .oneshot(
+                Request::builder()
+                    .uri("/api/v1/price?symbol=SOL/USD")
+                    .body(axum::body::Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(unauth.status(), StatusCode::UNAUTHORIZED);
+
+        // 3. Test /api/v1/price with valid API key header -> 200 OK
+        let authed = app
+            .clone()
+            .oneshot(
+                Request::builder()
+                    .uri("/api/v1/price?symbol=SOL/USD")
+                    .header("x-api-key", &secret)
+                    .body(axum::body::Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(authed.status(), StatusCode::OK);
+
+        // 4. Test /api/v1/price with query parameter ?key=... -> 200 OK
+        let authed_query = app
+            .clone()
+            .oneshot(
+                Request::builder()
+                    .uri(format!("/api/v1/price?symbol=SOL/USD&key={}", secret))
+                    .body(axum::body::Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(authed_query.status(), StatusCode::OK);
+
+        // 5. Test unsupported symbol -> 400 Bad Request
+        let bad_sym = app
+            .clone()
+            .oneshot(
+                Request::builder()
+                    .uri(format!("/api/v1/price?symbol=UNKNOWN/USD&key={}", secret))
+                    .body(axum::body::Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(bad_sym.status(), StatusCode::BAD_REQUEST);
+
+        // 6. Test /api/v1/ticks -> 200 OK
+        let ticks = app
+            .clone()
+            .oneshot(
+                Request::builder()
+                    .uri(format!("/api/v1/ticks?symbol=SOL/USD&limit=10&key={}", secret))
+                    .body(axum::body::Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(ticks.status(), StatusCode::OK);
+    }
+}
