@@ -43,7 +43,7 @@ ENV MSO_HTTP_ADDR=0.0.0.0:4000 \
     MSO_DB_PATH=/data/oracle.db \
     RUST_LOG=info
 
-# Expose REST Gateway / Web Dashboard (4000) and gRPC Server (50051)
+# Expose REST Gateway / Scalar Interactive API Docs (4000) and gRPC Server (50051)
 EXPOSE 4000 50051
 
 VOLUME ["/data"]

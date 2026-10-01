@@ -7,7 +7,7 @@ services:
     container_name: metasquare-oracle
     restart: unless-stopped
     ports:
-      - "4000:4000"    # Axum REST API Gateway & Live Status Dashboard
+      - "4000:4000"    # Axum REST API Gateway & Scalar Interactive Docs
       - "50051:50051"  # Tonic gRPC Streaming & Unary Service
     volumes:
       - mso-data:/data

@@ -24,7 +24,7 @@ Self-hosted, high-performance, multi-asset oracle microservice designed for low-
   - Hard cap of 100 active keys to eliminate resource exhaustion.
 - **Dual Interface**:
   - **gRPC (Tonic)**: High-speed unary and streaming price ticks on port `50051`.
-  - **REST / Web (Axum)**: REST API endpoints + HTML live status dashboard on port `4000`.
+  - **REST / Web (Axum)**: REST API endpoints + Scalar Interactive API Reference on port `4000`.
 
 ---
 
@@ -99,7 +99,8 @@ All requests must provide an active API key via `x-api-key: <KEY>` header, `Auth
 | `/api/v1/ticks` | GET | `symbol`, `limit` (1..300) | Recent chronological ticks for charts & sparklines |
 | `/api/v1/candles` | GET | `symbol`, `interval` (`1s`,`1m`,`1h`,`1d`), `limit` | Historical OHLC + TWAP candle bars |
 | `/api/v1/stats` | GET | `symbol`, `window_ms` (10s..24h) | Windowed High/Low, TWAP, and return percentage |
-| `/` | GET | None | Real-time web status dashboard |
+| `/` or `/docs` | GET | None (Public) | Interactive Scalar API Reference & Docs |
+| `/openapi.json` | GET | None (Public) | OpenAPI 3.1.0 JSON Specification |
 
 ---
 
