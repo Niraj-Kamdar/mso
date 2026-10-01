@@ -92,7 +92,6 @@ pub fn create_rest_router(feed: FeedCoordinator, auth: AuthManager) -> Router {
         .route("/openapi.json", get(openapi_handler))
         .route("/docs", get(scalar_docs_handler))
         .route("/", get(scalar_docs_handler))
-        .route("/dashboard", get(dashboard_handler))
         .with_state(state)
 }
 
@@ -654,62 +653,6 @@ async fn openapi_handler() -> impl IntoResponse {
     }))
 }
 
-async fn dashboard_handler() -> Html<&'static str> {
-    Html(r#"
-    <!DOCTYPE html>
-    <html lang="en">
-    <head>
-      <meta charset="UTF-8">
-      <title>Metasquare Oracle (mso)</title>
-      <style>
-        body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, monospace; background: #080a0f; color: #16f08e; margin: 0; padding: 2rem; }
-        .container { max-width: 800px; margin: 0 auto; }
-        h1 { color: #fff; font-size: 1.8rem; border-bottom: 1px solid #1f2430; padding-bottom: 0.8rem; }
-        .grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 1rem; margin-top: 1.5rem; }
-        .card { background: #0f131a; border: 1px solid #1f2430; border-radius: 8px; padding: 1.2rem; }
-        .card h3 { margin: 0 0 0.5rem 0; color: #8a919e; font-size: 0.9rem; text-transform: uppercase; }
-        .val { font-size: 1.6rem; font-weight: bold; color: #ffc83d; }
-        .sub { font-size: 0.75rem; color: #6b7280; margin-top: 0.4rem; }
-        .badge { background: #1f3b2e; color: #16f08e; padding: 2px 6px; border-radius: 4px; font-size: 0.7rem; }
-        .footer { margin-top: 2rem; font-size: 0.8rem; color: #4b5563; }
-      </style>
-    </head>
-    <body>
-      <div class="container">
-        <h1>🟢 Metasquare Oracle (mso) Node</h1>
-        <p style="color:#9ca3af;">Self-hosted on Raspberry Pi with NVMe storage. Ingesting Fast Tier (SOL 1s) and Standard Tier (60s Batch).</p>
-        <div class="grid">
-          <div class="card">
-            <h3>SOL/USD <span class="badge">1s LIVE</span></h3>
-            <div id="sol-price" class="val">Connecting...</div>
-            <div id="sol-meta" class="sub">Binance WS Stream</div>
-          </div>
-          <div class="card">
-            <h3>BTC/USD <span class="badge">1m Batch</span></h3>
-            <div id="btc-price" class="val">Loading...</div>
-            <div class="sub">Binance Multi-Ticker</div>
-          </div>
-          <div class="card">
-            <h3>HYPE/USD <span class="badge">1m Poller</span></h3>
-            <div id="hype-price" class="val">Loading...</div>
-            <div class="sub">Hyperliquid L1 DEX</div>
-          </div>
-          <div class="card">
-            <h3>PAXG/USD (Gold) <span class="badge">1m Poller</span></h3>
-            <div id="paxg-price" class="val">Loading...</div>
-            <div class="sub">Tokenized Gold (Binance/Jup)</div>
-          </div>
-        </div>
-        <div class="footer">
-          Endpoints: <code>/api/v1/price</code>, <code>/api/v1/ticks</code>, <code>/api/v1/candles</code>, <code>/api/v1/stats</code>, <code>/health</code><br>
-          Protected with Cloudflare WAF + in-memory API key validation.
-        </div>
-      </div>
-    </body>
-    </html>
-    "#)
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -835,18 +778,5 @@ mod tests {
             .await
             .unwrap();
         assert_eq!(openapi.status(), StatusCode::OK);
-
-        // 9. Test /dashboard -> 200 OK
-        let dash = app
-            .clone()
-            .oneshot(
-                Request::builder()
-                    .uri("/dashboard")
-                    .body(axum::body::Body::empty())
-                    .unwrap(),
-            )
-            .await
-            .unwrap();
-        assert_eq!(dash.status(), StatusCode::OK);
     }
 }
