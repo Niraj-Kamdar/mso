@@ -4,18 +4,26 @@ use tokio::time::{interval, Duration};
 
 use super::FeedCoordinator;
 
+// Jupiter Price API v3 response: usdPrice is an f64, not a string.
+// The `stockData.price` field gives the authoritative reference price from
+// xStocks/Backed for regulated RWA tokens (when available).
 #[derive(Deserialize)]
+struct StockData {
+    price: Option<f64>,
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
 struct JupiterPriceData {
-    price: Option<String>,
+    usd_price: Option<f64>,
+    stock_data: Option<StockData>,
 }
 
-#[derive(Deserialize)]
-struct JupiterApiResponse {
-    data: Option<HashMap<String, JupiterPriceData>>,
-}
+// Jupiter Price API v3: response is a flat map of mint -> PriceData (no `data` wrapper)
+type JupiterApiResponse = HashMap<String, JupiterPriceData>;
 
-// Mint mappings on Solana for Backed xStocks & PAXG
-// Defaults can be overridden or fallback to Yahoo
+// Verified Solana Token-2022 mint addresses for Backed Finance xStocks.
+// All confirmed live on api.jup.ag/price/v3 as of 2026-10.
 struct XStockMapping {
     standard_sym: &'static str,
     yahoo_sym: &'static str,
@@ -26,29 +34,32 @@ const XSTOCK_MAPPINGS: &[XStockMapping] = &[
     XStockMapping {
         standard_sym: "SPY/USD",
         yahoo_sym: "SPY",
-        solana_mint: "SPYx111111111111111111111111111111111111111", // Backed SPY
+        solana_mint: "XsoCS1TfEyfFhfvj8EtZ528L3CaKBDBRqRapnBbDF2W", // Backed SPYx (SP500 xStock)
     },
     XStockMapping {
         standard_sym: "NVDA/USD",
         yahoo_sym: "NVDA",
-        solana_mint: "NVDAx11111111111111111111111111111111111111", // Backed NVDA
+        solana_mint: "Xsc9qvGR1efVDFGLrVsmkzv3qi45LTBjeUKSPmx9qEh", // Backed NVDAx (NVIDIA xStock)
     },
     XStockMapping {
         standard_sym: "GOOG/USD",
-        yahoo_sym: "GOOG",
-        solana_mint: "GOOGx11111111111111111111111111111111111111", // Backed GOOG
+        yahoo_sym: "GOOGL",
+        solana_mint: "XsCPL9dNWBMvFtTmwcCA5v3xWPSMEBCszbQdiLLq6aN", // Backed GOOGLx (Alphabet xStock)
     },
     XStockMapping {
         standard_sym: "QQQ/USD",
         yahoo_sym: "QQQ",
-        solana_mint: "QQQx111111111111111111111111111111111111111", // Backed QQQ
+        solana_mint: "Xs8S1uUs1zvS2p7iwtsG3b6fkhpvmwz4GYU3gWAmWHZ", // Backed QQQx (Nasdaq-100 xStock)
     },
     XStockMapping {
         standard_sym: "TSLA/USD",
         yahoo_sym: "TSLA",
-        solana_mint: "TSLAx11111111111111111111111111111111111111", // Backed TSLA
+        solana_mint: "XsDoVfqeBukxuZHWhdvWHBhgEHjGNst4MLodqsJHzoB", // Backed TSLAx (Tesla xStock)
     },
 ];
+
+// Native Paxos PAXG on Solana (Token-2022, native issuance since Jun 2026)
+const PAXG_MINT: &str = "5GgRAEmv8ZxF2PR5hY72Qs5x1bnQ6UK2RbTPoqJ3wSwW";
 
 pub async fn start_xstocks_poller(coord: FeedCoordinator) {
     let client = reqwest::Client::builder()
@@ -65,22 +76,27 @@ pub async fn start_xstocks_poller(coord: FeedCoordinator) {
             .unwrap()
             .as_millis() as i64;
 
-        // 1. Try Primary: Jupiter Price API v2 for on-chain 24/7 DEX prices
+        // 1. Try Primary: Jupiter Price API v3 for on-chain 24/7 DEX prices.
+        //    For xStocks, v3 also returns stockData.price (authoritative reference price),
+        //    which we prefer over the DEX usdPrice when available.
         let mint_ids: Vec<&str> = XSTOCK_MAPPINGS.iter().map(|m| m.solana_mint).collect();
-        let jup_url = format!("https://api.jup.ag/price/v2?ids={}", mint_ids.join(","));
+        let jup_url = format!("https://api.jup.ag/price/v3?ids={}", mint_ids.join(","));
 
         if let Ok(resp) = client.get(&jup_url).send().await {
             if resp.status().is_success() {
                 if let Ok(body) = resp.json::<JupiterApiResponse>().await {
-                    if let Some(data) = body.data {
-                        for mapping in XSTOCK_MAPPINGS {
-                            if let Some(item) = data.get(mapping.solana_mint) {
-                                if let Some(ref p_str) = item.price {
-                                    if let Ok(price) = p_str.parse::<f64>() {
-                                        if price > 0.0 {
-                                            coord.record_tick(mapping.standard_sym, price, now, "jupiter-dex");
-                                        }
-                                    }
+                    for mapping in XSTOCK_MAPPINGS {
+                        if let Some(item) = body.get(mapping.solana_mint) {
+                            // Prefer stockData.price (Backed oracle) > usdPrice (DEX last swap)
+                            let price = item
+                                .stock_data
+                                .as_ref()
+                                .and_then(|sd| sd.price)
+                                .or(item.usd_price);
+
+                            if let Some(p) = price {
+                                if p > 0.0 {
+                                    coord.record_tick(mapping.standard_sym, p, now, "jupiter-dex");
                                 }
                             }
                         }
@@ -89,9 +105,9 @@ pub async fn start_xstocks_poller(coord: FeedCoordinator) {
             }
         }
 
-        // 2. Fallback: Yahoo Finance v8 chart API if Jupiter didn't succeed or for missing assets
+        // 2. Fallback: Yahoo Finance v8 chart API for any symbol Jupiter didn't return.
         for mapping in XSTOCK_MAPPINGS {
-            // Check if we already have a recent tick in L1 cache from this cycle
+            // Check if Jupiter already produced a fresh tick in this cycle (within 30s)
             let is_fresh = coord
                 .l1_cache
                 .get(mapping.standard_sym)
@@ -105,19 +121,18 @@ pub async fn start_xstocks_poller(coord: FeedCoordinator) {
             }
         }
 
-        // 3. PAXG Backup check on Jupiter
+        // 3. PAXG backup check on Jupiter v3.
+        //    Binance is the primary PAXG source; only hit Jupiter if Binance is stale > 2 min.
         if let Some(entry) = coord.l1_cache.get("PAXG/USD") {
             if now - entry.timestamp > 120_000 {
-                // If Binance PAXG hasn't updated in 2 mins, query Jupiter PAXG
-                let paxg_mint = "CXLBjnncvRHACoe276Bq7dBEcDZ8vj4nZ987zC7pump"; // Wrapped/Bridged PAXG
-                let jup_paxg_url = format!("https://api.jup.ag/price/v2?ids={}", paxg_mint);
-                if let Ok(resp) = client.get(&jup_paxg_url).send().await {
-                    if let Ok(body) = resp.json::<JupiterApiResponse>().await {
-                        if let Some(data) = body.data {
-                            if let Some(item) = data.get(paxg_mint) {
-                                if let Some(ref p_str) = item.price {
-                                    if let Ok(price) = p_str.parse::<f64>() {
-                                        coord.record_tick("PAXG/USD", price, now, "jupiter-backup");
+                let paxg_url = format!("https://api.jup.ag/price/v3?ids={}", PAXG_MINT);
+                if let Ok(resp) = client.get(&paxg_url).send().await {
+                    if resp.status().is_success() {
+                        if let Ok(body) = resp.json::<JupiterApiResponse>().await {
+                            if let Some(item) = body.get(PAXG_MINT) {
+                                if let Some(p) = item.usd_price {
+                                    if p > 0.0 {
+                                        coord.record_tick("PAXG/USD", p, now, "jupiter-backup");
                                     }
                                 }
                             }
