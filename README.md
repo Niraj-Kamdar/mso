@@ -70,6 +70,39 @@ cargo build --release
 
 ---
 
+## Configuration
+
+Assets, poll frequency, and retention come from a TOML file. With no file, the built-in
+[`src/config.default.toml`](src/config.default.toml) is used (it also serves as the reference).
+A custom file only needs the keys it changes; `assets` replaces the default list when present.
+
+```toml
+# mso.toml
+[poll_secs]
+binance = 10          # poll Binance every 10s instead of 60s
+
+[[assets]]
+symbol = "SOL/USD"
+source = "binance-ws" # binance-ws | binance | hyperliquid | jupiter | yahoo
+id = "SOLUSDT"
+fallback = { source = "hyperliquid", id = "SOL" }
+
+[[assets]]
+symbol = "DOGE/USD"
+source = "hyperliquid"
+id = "DOGE"
+```
+
+```bash
+./target/release/mso serve --config mso.toml   # or MSO_CONFIG=mso.toml
+# Docker: mount the file and set MSO_CONFIG
+docker run ... -v $PWD/mso.toml:/config/mso.toml:ro -e MSO_CONFIG=/config/mso.toml ghcr.io/niraj-kamdar/mso:latest
+```
+
+Unknown keys, duplicate symbols, unknown sources, and zero intervals are rejected at startup.
+
+---
+
 ## API Key Management
 
 ```bash
