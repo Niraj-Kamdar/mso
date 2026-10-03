@@ -22,7 +22,9 @@ type JupiterApiResponse = HashMap<String, JupiterPriceData>;
 /// Prices for Solana mints in one Jupiter v3 call.
 /// Prefers stockData.price (Backed oracle) over usdPrice (DEX last swap).
 pub async fn fetch_prices(client: &reqwest::Client, mints: &[String]) -> Result<Vec<(String, f64)>, String> {
-    let url = format!("https://api.jup.ag/price/v3?ids={}", mints.join(","));
+    // lite-api is the keyless tier and tolerates 1 req/s; api.jup.ag 429s at that rate.
+    let base = std::env::var("MSO_JUPITER_URL").unwrap_or_else(|_| "https://lite-api.jup.ag".into());
+    let url = format!("{}/price/v3?ids={}", base.trim_end_matches('/'), mints.join(","));
     let resp = client.get(&url).send().await.map_err(|e| e.to_string())?;
     if !resp.status().is_success() {
         return Err(format!("status {}", resp.status()));
