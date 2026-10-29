@@ -28,7 +28,7 @@ message PriceResponse {
   string symbol = 1;
   double price = 2;
   int64 timestamp = 3;             // Source epoch ms
-  string source = 4;               // "binance-ws", "jupiter-rwa", "hyperliquid"
+  string source = 4;               // "binance-ws", "binance", "hyperliquid", "jupiter", "yahoo", "uniswap" (+ "-fallback")
   bool is_stale = 5;
 }
 

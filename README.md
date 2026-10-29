@@ -14,6 +14,7 @@ Self-hosted, high-performance, multi-asset oracle microservice designed for low-
 - **Multi-Tier Ingestion**:
   - **Fast Tier (1-second update)**: `SOL/USD` continuous Binance WebSocket stream with Hyperliquid fallback.
   - **Standard Tier (60-second batch)**: `BTC/USD`, `ETH/USD`, `ZEC/USD`, `PAXG/USD` (Tokenized Gold via Binance/Jupiter) and Backed xStocks (`SPY/USD`, `NVDA/USD`, `GOOG/USD`, `QQQ/USD`, `TSLA/USD` via Jupiter DEX with Yahoo Finance fallback).
+  - **Ethereum L1 (opt-in)**: any Uniswap V3 pool as an on-chain TWAP oracle (e.g. `WETH/USDT`), read via `observe()` with a configurable window (`hot` 1m / `warm` 10m / `cool` 30m / `cold` 1h / custom).
 - **Time-Series Rollup Pyramid**:
   - Auto-downsamples raw ticks $\rightarrow$ `candles_1m` (7-day retention) $\rightarrow$ `candles_1h` (90-day retention) $\rightarrow$ `candles_1d` (permanent archive).
   - Storage footprint stays $<30$ MB forever.
@@ -83,7 +84,7 @@ binance = 10          # poll Binance every 10s instead of 60s
 
 [[assets]]
 symbol = "SOL/USD"
-source = "binance-ws" # binance-ws | binance | hyperliquid | jupiter | yahoo
+source = "binance-ws" # binance-ws | binance | hyperliquid | jupiter | yahoo | uniswap
 id = "SOLUSDT"
 fallback = { source = "hyperliquid", id = "SOL" }
 
@@ -100,6 +101,61 @@ docker run ... -v $PWD/mso.toml:/config/mso.toml:ro -e MSO_CONFIG=/config/mso.to
 ```
 
 Unknown keys, duplicate symbols, unknown sources, and zero intervals are rejected at startup.
+
+### Ethereum mainnet via Uniswap V3 TWAP
+
+Any Uniswap V3 pool can be served as a time-weighted average price. The asset `id` is the
+**pool contract address**; the price is `token0` quoted in `token1` (for the WETH/USDT 0.05%
+pool, `token0` = WETH and `token1` = USDT, so the feed reports USDT per WETH). Token
+addresses and decimals are read from the chain, and the TWAP is computed exactly like the
+periphery `OracleLibrary.consult` (`observe([window, 0])`, arithmetic mean tick floored,
+`1.0001^tick` scaled by decimals). Chain access goes through [alloy](https://github.com/alloy-rs/alloy)
+(`sol!` bindings for `token0`/`token1`/`observe`), with JSON-RPC sent over the same HTTP
+client as every other feed.
+
+```toml
+[poll_secs]
+uniswap = 60                # how often observe() is called
+
+[feeds.uniswap]             # feed-specific settings
+twap = "warm"               # default window: hot (1m) | warm (10m) | cool (30m) | cold (1h)
+# twap = { custom = 120 }   # or any number of seconds (1 .. 604800)
+
+[[assets]]
+symbol = "WETH/USDT"
+source = "uniswap"
+id = "0x11b815efB8f581194ae79006d24E0d814B7697F6"   # WETH/USDT 0.05% pool
+twap = "hot"                                        # optional override (uniswap is primary)
+fallback = { source = "binance", id = "ETHUSDT" }
+
+[[assets]]
+symbol = "ETH/USD"
+source = "binance"
+id = "ETHUSDT"
+# uniswap as fallback: its window lives inside the fallback table
+fallback = { source = "uniswap", id = "0x11b815efB8f581194ae79006d24E0d814B7697F6", twap = { custom = 30 } }
+```
+
+The mainnet JSON-RPC endpoint comes from the environment, never the config file (it usually
+embeds an API key):
+
+```bash
+export MSO_ETH_RPC_URL=https://mainnet.infura.io/v3/<key>   # any Ethereum mainnet JSON-RPC
+./target/release/mso serve --config mso.toml
+```
+
+Startup fails fast if Uniswap assets are configured without `MSO_ETH_RPC_URL`. Pool ids must
+be valid addresses (EIP-55 checksums are verified when mixed case; ids are normalized to EIP-55), `twap` is only accepted on
+the leg whose source is Uniswap (top level for a primary, inside `fallback = { ... }` for a
+fallback), and two legs sharing a pool must agree on its window. Longer windows are more
+manipulation-resistant but lag spot; a pool must hold enough observation history for the
+window (`increaseObservationCardinalityNext`), otherwise the poll logs an `OLD` revert.
+
+To smoke-test the feed against mainnet (queries WETH/USDT on every preset):
+
+```bash
+MSO_ETH_RPC_URL=https://... cargo test live_uniswap -- --ignored --nocapture
+```
 
 ---
 

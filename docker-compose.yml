@@ -18,6 +18,7 @@ services:
       - MSO_DB_PATH=/data/oracle.db
       - RUST_LOG=info
       # - MSO_CONFIG=/config/mso.toml
+      # - MSO_ETH_RPC_URL=https://mainnet.infura.io/v3/<key>   # required for uniswap assets
     healthcheck:
       test: ["CMD", "/usr/local/bin/mso", "health"]
       interval: 15s

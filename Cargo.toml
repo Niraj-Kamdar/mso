@@ -37,6 +37,10 @@ thiserror = "1.0"
 async-stream = "0.3"
 futures-util = "0.3"
 toml = "0.9"
+# Ethereum: ABI codegen (sol!), EIP-55 addresses, JSON-RPC provider + contract calls.
+# No alloy HTTP features on purpose: RPC traffic goes through the crate's shared
+# reqwest client (see feed::uniswap::SharedHttp), not a second HTTP/TLS stack.
+alloy = { version = "2.5.0", default-features = false, features = ["std", "sol-types", "contract", "json-rpc"] }
 
 [build-dependencies]
 tonic-build = "0.12"

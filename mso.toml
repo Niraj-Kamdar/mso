@@ -9,6 +9,12 @@
 [poll_secs]
 jupiter = 2
 binance = 5
+uniswap = 30
+
+# Ethereum mainnet via Uniswap V3 TWAP. Needs MSO_ETH_RPC_URL in the environment
+# (startup fails without it while a uniswap asset is configured).
+[feeds.uniswap]
+twap = "warm"        # hot (1m) | warm (10m) | cool (30m) | cold (1h) | { custom = <secs> }
 
 # `assets` replaces the default list as a whole, so every symbol is restated.
 [[assets]]
@@ -76,3 +82,12 @@ symbol = "TSLA/USD"
 source = "jupiter"
 id = "XsDoVfqeBukxuZHWhdvWHBhgEHjGNst4MLodqsJHzoB"
 fallback = { source = "yahoo", id = "TSLA" }
+
+# Uniswap ids are V3 pool contract addresses; the price is token0 in token1.
+# WETH/USDT 0.05% pool: token0 = WETH (18 dec), token1 = USDT (6 dec).
+[[assets]]
+symbol = "WETH/USDT"
+source = "uniswap"
+id = "0x11b815efB8f581194ae79006d24E0d814B7697F6"
+twap = "hot"         # overrides [feeds.uniswap].twap (uniswap is the primary here)
+fallback = { source = "binance", id = "ETHUSDT" }
