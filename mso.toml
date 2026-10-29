@@ -1,0 +1,79 @@
+# Custom mso config: Jupiter is primary for every asset (full-precision float, ~2s).
+# Fallbacks: crypto/PAXG -> Binance (SOL via the WS stream), xStocks -> Yahoo.
+# Run: mso serve --config mso.toml   (or MSO_CONFIG=mso.toml)
+
+# One shared Jupiter interval = one batched call for all 11 ids (lite-api.jup.ag,
+# mso's default). Deployed at 2s; 1s tested clean on lite-api (keyless api.jup.ag
+# 429s at 1s). Binance and Yahoo REST are fallback-only (fetched just while a
+# Jupiter price is stale), so a 5s poll is cheap and fails over fast.
+[poll_secs]
+jupiter = 2
+binance = 5
+yahoo = 5
+
+# `assets` replaces the default list as a whole, so every symbol is restated.
+[[assets]]
+symbol = "SOL/USD"
+source = "jupiter"
+id = "So11111111111111111111111111111111111111112"
+fallback = { source = "binance", id = "SOLUSDT" }
+
+[[assets]]
+symbol = "BTC/USD"
+source = "jupiter"
+id = "cbbtcf3aa214zXHbiAZQwf4122FBYbraNdFqgw4iMij"
+fallback = { source = "binance", id = "BTCUSDT" }
+
+[[assets]]
+symbol = "ETH/USD"
+source = "jupiter"
+id = "7vfCXTUXx5WJV5JADk17DUJ4ksgau7utNKj4b963voxs"
+fallback = { source = "binance", id = "ETHUSDT" }
+
+[[assets]]
+symbol = "ZEC/USD"
+source = "jupiter"
+id = "A7bdiYdS5GjqGFtxf17ppRHtDKPkkRqbKtR27dxvQXaS"
+fallback = { source = "binance", id = "ZECUSDT" }
+
+[[assets]]
+symbol = "PAXG/USD"
+source = "jupiter"
+id = "5GgRAEmv8ZxF2PR5hY72Qs5x1bnQ6UK2RbTPoqJ3wSwW"
+fallback = { source = "binance", id = "PAXGUSDT" }
+
+[[assets]]
+symbol = "HYPE/USD"
+source = "jupiter"
+id = "98sMhvDwXj1RQi5c5Mndm3vPe9cBqPrbLaufMXFNMh5g"
+fallback = { source = "binance", id = "HYPEUSDT" }
+
+[[assets]]
+symbol = "SPY/USD"
+source = "jupiter"
+id = "XsoCS1TfEyfFhfvj8EtZ528L3CaKBDBRqRapnBbDF2W"
+fallback = { source = "yahoo", id = "SPY" }
+
+[[assets]]
+symbol = "NVDA/USD"
+source = "jupiter"
+id = "Xsc9qvGR1efVDFGLrVsmkzv3qi45LTBjeUKSPmx9qEh"
+fallback = { source = "yahoo", id = "NVDA" }
+
+[[assets]]
+symbol = "GOOG/USD"
+source = "jupiter"
+id = "XsCPL9dNWBMvFtTmwcCA5v3xWPSMEBCszbQdiLLq6aN"
+fallback = { source = "yahoo", id = "GOOGL" }
+
+[[assets]]
+symbol = "QQQ/USD"
+source = "jupiter"
+id = "Xs8S1uUs1zvS2p7iwtsG3b6fkhpvmwz4GYU3gWAmWHZ"
+fallback = { source = "yahoo", id = "QQQ" }
+
+[[assets]]
+symbol = "TSLA/USD"
+source = "jupiter"
+id = "XsDoVfqeBukxuZHWhdvWHBhgEHjGNst4MLodqsJHzoB"
+fallback = { source = "yahoo", id = "TSLA" }

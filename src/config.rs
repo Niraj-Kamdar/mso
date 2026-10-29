@@ -319,4 +319,19 @@ mod tests {
         assert_eq!(cfg.ids_for(Source::Jupiter).len(), 6); // PAXG backup + 5 xStocks
         assert_eq!(cfg.ids_for(Source::Yahoo), vec!["SPY", "NVDA", "GOOGL", "QQQ", "TSLA"]);
     }
+
+    #[test]
+    fn test_production_mso_toml_valid() {
+        let content = std::fs::read_to_string("mso.toml").unwrap();
+        let cfg = Config::parse(&content).unwrap();
+        assert_eq!(cfg.assets.len(), 11);
+        assert_eq!(cfg.poll_secs.jupiter, 2);
+        assert_eq!(cfg.poll_secs.binance, 5);
+        assert_eq!(cfg.poll_secs.yahoo, 5);
+        // All 11 symbols use Jupiter as primary with fallback
+        for a in &cfg.assets {
+            assert_eq!(a.source, Source::Jupiter);
+            assert!(a.fallback.is_some());
+        }
+    }
 }
