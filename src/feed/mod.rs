@@ -401,12 +401,48 @@ mod tests {
         }
     }
 
-    #[tokio::test]
+    #[tokio::test(flavor = "current_thread")]
     async fn test_uniswap_wrong_chain_only_warns() {
+        #[derive(Clone)]
+        struct LogWriter(Arc<std::sync::Mutex<Vec<u8>>>);
+        impl std::io::Write for LogWriter {
+            fn write(&mut self, buf: &[u8]) -> std::io::Result<usize> {
+                self.0.lock().unwrap().extend_from_slice(buf);
+                Ok(buf.len())
+            }
+            fn flush(&mut self) -> std::io::Result<()> {
+                Ok(())
+            }
+        }
+
+        let logs = Arc::new(std::sync::Mutex::new(Vec::new()));
+        let logs_clone = logs.clone();
+        let subscriber = tracing_subscriber::fmt()
+            .with_ansi(false)
+            .with_writer(move || LogWriter(logs_clone.clone()))
+            .finish();
+        let _guard = tracing::subscriber::set_default(subscriber);
+
         let st = Arc::new(MockState { chain_id: 42_161, ..mock::weth_usdt_state(WETH_USDT_TICK) });
         let uni = client(&mock::serve(st).await);
         let out = uni.fetch_twaps(&[(pool_id(WETH_USDT_POOL), 600)]).await.unwrap();
         assert_eq!(out.len(), 1);
+
+        let output = String::from_utf8(logs.lock().unwrap().clone()).unwrap();
+        let warn_line = output
+            .lines()
+            .find(|l| l.contains("42161") && l.contains("not Ethereum mainnet"));
+        assert!(
+            warn_line.is_some(),
+            "expected wrong-chain message mentioning chain id 42161 and not Ethereum mainnet, got logs:\n{}",
+            output
+        );
+        let line = warn_line.unwrap();
+        assert!(
+            line.contains("WARN"),
+            "expected wrong-chain message to be logged at WARN level, got line: {}",
+            line
+        );
     }
 
     #[tokio::test]
