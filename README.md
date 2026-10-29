@@ -142,12 +142,13 @@ The mainnet JSON-RPC endpoint comes from the environment, never the config file 
 embeds an API key):
 
 ```bash
-export MSO_ETH_RPC_URL=https://mainnet.infura.io/v3/<key>   # any Ethereum mainnet JSON-RPC
+export MSO_ETH_RPC_URL=https://mainnet.infura.io/v3/<key>   # any Ethereum mainnet JSON-RPC (or ETH_RPC_URL)
 ./target/release/mso serve --config mso.toml
 ```
 
-Startup fails fast if Uniswap assets are configured without `MSO_ETH_RPC_URL`. Pool ids must
-be valid addresses (EIP-55 checksums are verified when mixed case; ids are normalized to EIP-55), `twap` is only accepted on
+Startup fails fast if Uniswap assets are configured without `MSO_ETH_RPC_URL` (or `ETH_RPC_URL`).
+Non-loopback RPC endpoints must use HTTPS to keep credentials secure (HTTP is only permitted for local development on localhost/127.0.0.1).
+Pool ids must be valid addresses (EIP-55 checksums are verified when mixed case; ids are normalized to EIP-55), `twap` is only accepted on
 the leg whose source is Uniswap (top level for a primary, inside `fallback = { ... }` for a
 fallback), and two legs sharing a pool must agree on its window. Longer windows are more
 manipulation-resistant but lag spot; a pool must hold enough observation history for the

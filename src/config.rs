@@ -736,8 +736,9 @@ mod tests {
         assert_eq!(cfg.poll_secs.jupiter, 2);
         assert_eq!(cfg.poll_secs.binance, 5);
         assert_eq!(cfg.poll_secs.yahoo, 5);
-        // All Jupiter primary assets have fallback configured
-        for a in cfg.assets.iter().filter(|a| a.source == Source::Jupiter) {
+        assert_eq!(cfg.poll_secs.uniswap, 30);
+        // All assets have fallback configured
+        for a in &cfg.assets {
             assert!(a.fallback.is_some());
         }
     }

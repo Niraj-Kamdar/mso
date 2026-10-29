@@ -20,7 +20,8 @@ candles_1h_days = 90
 # Source-specific settings.
 #
 # uniswap: on-chain Uniswap V3 TWAP read via `observe()` on Ethereum mainnet.
-#   Requires MSO_ETH_RPC_URL (a mainnet JSON-RPC endpoint) in the environment.
+#   Requires MSO_ETH_RPC_URL (or ETH_RPC_URL, a mainnet JSON-RPC endpoint) in the environment.
+#   Non-loopback endpoints must use HTTPS.
 #   twap: look-back window for the time-weighted average price.
 #         "hot" (1 min) | "warm" (10 min) | "cool" (30 min) | "cold" (1 hour)
 #         | { custom = <seconds> }   (1 .. 604800)
@@ -108,7 +109,7 @@ source = "jupiter"
 id = "XsDoVfqeBukxuZHWhdvWHBhgEHjGNst4MLodqsJHzoB"
 fallback = { source = "yahoo", id = "TSLA" }
 
-# Ethereum mainnet via Uniswap V3 TWAP (needs MSO_ETH_RPC_URL). The id is the
+# Ethereum mainnet via Uniswap V3 TWAP (needs MSO_ETH_RPC_URL or ETH_RPC_URL). The id is the
 # pool contract; WETH/USDT 0.05% has token0 = WETH, token1 = USDT, so the
 # feed reports WETH priced in USDT.
 # [[assets]]

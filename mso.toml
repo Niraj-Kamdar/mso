@@ -12,8 +12,8 @@ binance = 5
 yahoo = 5
 uniswap = 30
 
-# Ethereum mainnet via Uniswap V3 TWAP. Needs MSO_ETH_RPC_URL in the environment
-# (startup fails without it while a uniswap asset is configured).
+# Ethereum mainnet via Uniswap V3 TWAP. Needs MSO_ETH_RPC_URL (or ETH_RPC_URL) in the environment
+# (startup fails without it while a uniswap asset is configured). Non-loopback endpoints must use HTTPS.
 [feeds.uniswap]
 twap = "warm"        # hot (1m) | warm (10m) | cool (30m) | cold (1h) | { custom = <secs> }
 

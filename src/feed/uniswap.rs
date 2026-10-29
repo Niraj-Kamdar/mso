@@ -51,6 +51,8 @@ sol! {
 
 /// Environment variable holding the Ethereum mainnet JSON-RPC URL.
 pub const ENV_RPC_URL: &str = "MSO_ETH_RPC_URL";
+/// Generic fallback environment variable for the Ethereum mainnet JSON-RPC URL.
+pub const ENV_RPC_URL_FALLBACK: &str = "ETH_RPC_URL";
 
 /// Ethereum mainnet chain id; other networks only trigger a warning since the
 /// configured pool addresses are chain-specific.
@@ -60,20 +62,57 @@ pub const MAINNET_CHAIN_ID: u64 = 1;
 pub const MIN_TICK: i32 = -887_272;
 pub const MAX_TICK: i32 = 887_272;
 
-/// Mainnet RPC URL from `MSO_ETH_RPC_URL`.
+/// Mainnet RPC URL from `MSO_ETH_RPC_URL` or fallback `ETH_RPC_URL`.
 pub fn rpc_url() -> Result<String, String> {
-    rpc_url_from(std::env::var(ENV_RPC_URL).ok())
+    let val = std::env::var(ENV_RPC_URL)
+        .ok()
+        .filter(|v| !v.trim().is_empty())
+        .or_else(|| std::env::var(ENV_RPC_URL_FALLBACK).ok().filter(|v| !v.trim().is_empty()));
+    rpc_url_from(val)
+}
+
+fn is_loopback(host: &str) -> bool {
+    if host.eq_ignore_ascii_case("localhost") || host.ends_with(".localhost") {
+        return true;
+    }
+    let trimmed = host.trim_start_matches('[').trim_end_matches(']');
+    if let Ok(ip) = trimmed.parse::<std::net::IpAddr>() {
+        return ip.is_loopback();
+    }
+    false
+}
+
+/// Validates that the RPC URL is HTTP(S) and enforces HTTPS for non-loopback endpoints.
+pub fn validate_rpc_url(u: &reqwest::Url) -> Result<(), String> {
+    let host = u.host_str().ok_or_else(|| "URL must have a host".to_string())?;
+    match u.scheme() {
+        "https" => Ok(()),
+        "http" => {
+            if is_loopback(host) {
+                Ok(())
+            } else {
+                Err("must use HTTPS for non-loopback endpoints (HTTP allowed only for localhost/127.0.0.1)".into())
+            }
+        }
+        _ => Err("must be an http(s) URL".into()),
+    }
 }
 
 pub fn rpc_url_from(value: Option<String>) -> Result<String, String> {
     let raw = value
         .map(|v| v.trim().to_string())
         .filter(|v| !v.is_empty())
-        .ok_or_else(|| format!("{} is not set (Ethereum mainnet JSON-RPC URL, required for uniswap assets)", ENV_RPC_URL))?;
-    match reqwest::Url::parse(&raw) {
-        Ok(u) if matches!(u.scheme(), "http" | "https") && u.host_str().is_some() => Ok(raw),
-        _ => Err(format!("{} must be an http(s) URL, got '{}'", ENV_RPC_URL, redact_url(&raw))),
-    }
+        .ok_or_else(|| {
+            format!(
+                "{} (or {}) is not set (Ethereum mainnet JSON-RPC URL, required for uniswap assets)",
+                ENV_RPC_URL, ENV_RPC_URL_FALLBACK
+            )
+        })?;
+    let u = reqwest::Url::parse(&raw)
+        .map_err(|_| format!("{} must be an http(s) URL, got '{}'", ENV_RPC_URL, redact_url(&raw)))?;
+    validate_rpc_url(&u)
+        .map_err(|e| format!("{} {}: '{}'", ENV_RPC_URL, e, redact_url(&raw)))?;
+    Ok(raw)
 }
 
 /// Scheme + host(:port) only: RPC URLs usually carry an API key in the path or query.
@@ -149,6 +188,7 @@ impl UniswapClient {
     /// `http` is the shared feed client (timeouts, TLS and proxy settings included).
     pub fn new(http: reqwest::Client, rpc_url: &str) -> Result<Self, String> {
         let url = reqwest::Url::parse(rpc_url).map_err(|e| format!("invalid {}: {}", ENV_RPC_URL, e))?;
+        validate_rpc_url(&url).map_err(|e| format!("invalid {}: {}", ENV_RPC_URL, e))?;
         let transport = SharedHttp { client: http, url: url.clone() };
         let provider = ProviderBuilder::new()
             .disable_recommended_fillers() // read-only: no gas/nonce/signing fillers
@@ -525,6 +565,10 @@ mod tests {
         assert!(rpc_url_from(Some("wss://mainnet.example".into())).is_err());
         assert!(rpc_url_from(Some("mainnet.example".into())).is_err());
         assert!(rpc_url_from(Some("https://".into())).is_err());
+        assert!(rpc_url_from(Some("http://mainnet.example".into())).is_err());
+        assert_eq!(rpc_url_from(Some(" http://127.0.0.1:8545 ".into())).unwrap(), "http://127.0.0.1:8545");
+        assert_eq!(rpc_url_from(Some(" http://localhost:8545 ".into())).unwrap(), "http://localhost:8545");
+        assert_eq!(rpc_url_from(Some(" http://[::1]:8545 ".into())).unwrap(), "http://[::1]:8545");
         assert_eq!(rpc_url_from(Some(" https://eth.example/v3/KEY ".into())).unwrap(), "https://eth.example/v3/KEY");
 
         assert_eq!(redact_url("https://eth.example/v3/SECRET"), "https://eth.example/...");
@@ -538,7 +582,37 @@ mod tests {
     fn test_client_rejects_bad_url() {
         let http = reqwest::Client::new();
         assert!(UniswapClient::new(http.clone(), "not a url").is_err());
-        assert!(UniswapClient::new(http, "http://127.0.0.1:8545").is_ok());
+        assert!(UniswapClient::new(http.clone(), "http://127.0.0.1:8545").is_ok());
+        assert!(UniswapClient::new(http.clone(), "http://localhost:8545").is_ok());
+        assert!(UniswapClient::new(http.clone(), "https://eth.example/v3/KEY").is_ok());
+        assert!(UniswapClient::new(http, "http://eth.example/v3/KEY").is_err());
+    }
+
+    #[test]
+    fn test_rpc_url_env_resolution() {
+        static ENV_LOCK: Mutex<()> = Mutex::new(());
+        let _guard = ENV_LOCK.lock().unwrap();
+        let prev_primary = std::env::var(ENV_RPC_URL).ok();
+        let prev_fallback = std::env::var(ENV_RPC_URL_FALLBACK).ok();
+
+        std::env::remove_var(ENV_RPC_URL);
+        std::env::remove_var(ENV_RPC_URL_FALLBACK);
+        assert!(rpc_url().is_err());
+
+        std::env::set_var(ENV_RPC_URL_FALLBACK, "https://fallback.example/v3");
+        assert_eq!(rpc_url().unwrap(), "https://fallback.example/v3");
+
+        std::env::set_var(ENV_RPC_URL, "https://primary.example/v3");
+        assert_eq!(rpc_url().unwrap(), "https://primary.example/v3");
+
+        match prev_primary {
+            Some(v) => std::env::set_var(ENV_RPC_URL, v),
+            None => std::env::remove_var(ENV_RPC_URL),
+        }
+        match prev_fallback {
+            Some(v) => std::env::set_var(ENV_RPC_URL_FALLBACK, v),
+            None => std::env::remove_var(ENV_RPC_URL_FALLBACK),
+        }
     }
 
     #[test]

@@ -226,10 +226,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
                         for k in keys {
                             let status = if k.is_revoked { "REVOKED" } else { "ACTIVE" };
                             let exp = match k.expires_at {
-                                Some(ts) => {
-                                    let dt = chrono_placeholder(ts);
-                                    dt
-                                }
+                                Some(ts) => chrono_placeholder(ts),
                                 None => "Never".to_string(),
                             };
                             println!("{:<36} {:<24} {:<10} {:<20}", k.id, k.app_name, status, exp);
