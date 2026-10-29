@@ -418,6 +418,7 @@ mod tests {
         let logs = Arc::new(std::sync::Mutex::new(Vec::new()));
         let logs_clone = logs.clone();
         let subscriber = tracing_subscriber::fmt()
+            .with_ansi(false)
             .with_writer(move || LogWriter(logs_clone.clone()))
             .finish();
         let _guard = tracing::subscriber::set_default(subscriber);
@@ -428,15 +429,19 @@ mod tests {
         assert_eq!(out.len(), 1);
 
         let output = String::from_utf8(logs.lock().unwrap().clone()).unwrap();
+        let warn_line = output
+            .lines()
+            .find(|l| l.contains("42161") && l.contains("not Ethereum mainnet"));
         assert!(
-            output.contains("42161"),
-            "expected warning mentioning chain id 42161, got: {}",
+            warn_line.is_some(),
+            "expected wrong-chain message mentioning chain id 42161 and not Ethereum mainnet, got logs:\n{}",
             output
         );
+        let line = warn_line.unwrap();
         assert!(
-            output.contains("not Ethereum mainnet"),
-            "expected warning mentioning not Ethereum mainnet, got: {}",
-            output
+            line.contains("WARN"),
+            "expected wrong-chain message to be logged at WARN level, got line: {}",
+            line
         );
     }
 
