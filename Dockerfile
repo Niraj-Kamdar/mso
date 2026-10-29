@@ -14,6 +14,7 @@ WORKDIR /app
 COPY Cargo.toml Cargo.lock build.rs ./
 COPY proto ./proto
 COPY src ./src
+COPY mso.toml ./
 
 # Build stripped release binary with optimizations
 RUN cargo build --release --bin mso && \
@@ -29,9 +30,10 @@ RUN mkdir -p /data && chown 65532:65532 /data
 # =============================================================================
 FROM gcr.io/distroless/cc-debian12:nonroot AS runner
 
-# Copy stripped binary and data volume directory
+# Copy stripped binary, data volume directory, and production config
 COPY --from=builder /app/target/release/mso /usr/local/bin/mso
 COPY --from=builder --chown=65532:65532 /data /data
+COPY --from=builder /app/mso.toml /config/mso.toml
 
 # Run as nonroot user (UID 65532)
 USER 65532:65532
@@ -41,6 +43,7 @@ WORKDIR /data
 ENV MSO_HTTP_ADDR=0.0.0.0:4000 \
     MSO_GRPC_ADDR=0.0.0.0:50051 \
     MSO_DB_PATH=/data/oracle.db \
+    MSO_CONFIG=/config/mso.toml \
     RUST_LOG=info
 
 # Expose REST Gateway / Scalar Interactive API Docs (4000) and gRPC Server (50051)
