@@ -7,6 +7,29 @@ use crate::config::MAX_ACTIVE_KEYS;
 use crate::db::queries::{self, ApiKeyRecord};
 use crate::db::DbManager;
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ApiKeyScope {
+    Read,
+    Write,
+}
+
+impl ApiKeyScope {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            ApiKeyScope::Read => "read",
+            ApiKeyScope::Write => "write",
+        }
+    }
+
+    pub fn from_str(s: &str) -> Option<Self> {
+        match s {
+            "read" => Some(ApiKeyScope::Read),
+            "write" => Some(ApiKeyScope::Write),
+            _ => None,
+        }
+    }
+}
+
 #[allow(dead_code)]
 #[derive(Debug, Clone)]
 pub struct ApiKeyMetadata {
@@ -14,6 +37,7 @@ pub struct ApiKeyMetadata {
     pub app_name: String,
     pub expires_at: Option<i64>,
     pub is_revoked: bool,
+    pub scope: ApiKeyScope,
 }
 
 #[derive(Debug, thiserror::Error)]
@@ -26,6 +50,8 @@ pub enum AuthError {
     ExpiredKey,
     #[error("API key has been revoked")]
     RevokedKey,
+    #[error("API key requires write scope for this operation")]
+    InsufficientScope,
     #[error("Maximum active API key quota reached (limit: {0})")]
     QuotaExceeded(usize),
     #[error("Database error: {0}")]
@@ -57,6 +83,7 @@ impl AuthManager {
 
         self.cache.clear();
         for k in keys {
+            let scope = ApiKeyScope::from_str(&k.scope).unwrap_or(ApiKeyScope::Read);
             self.cache.insert(
                 k.key_hash,
                 ApiKeyMetadata {
@@ -64,6 +91,7 @@ impl AuthManager {
                     app_name: k.app_name,
                     expires_at: k.expires_at,
                     is_revoked: k.is_revoked,
+                    scope,
                 },
             );
         }
@@ -101,6 +129,7 @@ impl AuthManager {
         &self,
         app_name: &str,
         ttl_ms: Option<i64>,
+        scope: ApiKeyScope,
     ) -> Result<(String, String), AuthError> {
         let active_count = self
             .db
@@ -124,7 +153,7 @@ impl AuthManager {
 
         self.db
             .with_conn(|conn| {
-                queries::insert_api_key(conn, &id, app_name, &key_hash, now, expires_at)
+                queries::insert_api_key(conn, &id, app_name, &key_hash, now, expires_at, scope.as_str())
             })
             .map_err(|e| AuthError::DatabaseError(e.to_string()))?;
 
@@ -135,10 +164,20 @@ impl AuthManager {
                 app_name: app_name.to_string(),
                 expires_at,
                 is_revoked: false,
+                scope,
             },
         );
 
         Ok((id, raw_secret))
+    }
+
+    pub fn authenticate_with_scope(&self, raw_key: &str, required_scope: ApiKeyScope) -> Result<ApiKeyMetadata, AuthError> {
+        let meta = self.authenticate(raw_key)?;
+        // Strict scope enforcement: read keys can only read, write keys can only write
+        if meta.scope != required_scope {
+            return Err(AuthError::InsufficientScope);
+        }
+        Ok(meta)
     }
 
     pub fn revoke_key(&self, id: &str) -> Result<bool, AuthError> {
@@ -173,10 +212,10 @@ mod tests {
     #[test]
     fn test_auth_workflow() {
         let db = DbManager::in_memory().unwrap();
-        let auth = AuthManager::new(db).unwrap();
+        let auth = AuthManager::new(db.clone()).unwrap();
 
-        // 1. Create key
-        let (id, secret) = auth.create_key("test-app", Some(60_000)).unwrap();
+        // 1. Create read key
+        let (id, secret) = auth.create_key("test-app", Some(60_000), ApiKeyScope::Read).unwrap();
         assert!(id.starts_with("key_"));
         assert!(secret.starts_with("pnl_live_"));
 
@@ -184,6 +223,7 @@ mod tests {
         let meta = auth.authenticate(&secret).unwrap();
         assert_eq!(meta.id, id);
         assert_eq!(meta.app_name, "test-app");
+        assert_eq!(meta.scope, ApiKeyScope::Read);
 
         // 3. Authenticate invalid key
         assert!(matches!(auth.authenticate("invalid_key"), Err(AuthError::InvalidKey)));
@@ -194,6 +234,23 @@ mod tests {
 
         // 5. Authenticate revoked key
         assert!(matches!(auth.authenticate(&secret), Err(AuthError::RevokedKey)));
+
+        // 6. Test write scope with fresh AuthManager (Issue #15)
+        let (wid, wsecret) = auth.create_key("writer-app", None, ApiKeyScope::Write).unwrap();
+
+        // Reload cache from DB to ensure consistency
+        let auth2 = AuthManager::new(db).unwrap();
+        let wmeta = auth2.authenticate_with_scope(&wsecret, ApiKeyScope::Write).unwrap();
+        assert_eq!(wmeta.scope, ApiKeyScope::Write);
+        assert_eq!(wmeta.id, wid);
+
+        // 7. Test insufficient scope
+        let (_rid, rsecret) = auth2.create_key("reader-app", None, ApiKeyScope::Read).unwrap();
+        let auth3 = AuthManager::new(auth2.db.clone()).unwrap();
+        assert!(matches!(
+            auth3.authenticate_with_scope(&rsecret, ApiKeyScope::Write),
+            Err(AuthError::InsufficientScope)
+        ));
     }
 
     #[test]
@@ -202,12 +259,12 @@ mod tests {
         let auth = AuthManager::new(db).unwrap();
 
         for i in 0..MAX_ACTIVE_KEYS {
-            let res = auth.create_key(&format!("app_{}", i), None);
+            let res = auth.create_key(&format!("app_{}", i), None, ApiKeyScope::Read);
             assert!(res.is_ok());
         }
 
         // 101th key should fail quota
-        let overflow = auth.create_key("overflow", None);
+        let overflow = auth.create_key("overflow", None, ApiKeyScope::Read);
         assert!(matches!(overflow, Err(AuthError::QuotaExceeded(_))));
     }
 }

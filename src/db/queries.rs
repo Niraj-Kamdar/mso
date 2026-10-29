@@ -40,6 +40,7 @@ pub struct ApiKeyRecord {
     pub created_at: i64,
     pub expires_at: Option<i64>,
     pub is_revoked: bool,
+    pub scope: String,
 }
 
 pub fn insert_tick(conn: &Connection, symbol: &str, t: i64, price: f64, source: &str) -> Result<()> {
@@ -189,10 +190,11 @@ pub fn insert_api_key(
     key_hash: &str,
     created_at: i64,
     expires_at: Option<i64>,
+    scope: &str,
 ) -> Result<()> {
     conn.execute(
-        "INSERT INTO api_keys (id, app_name, key_hash, created_at, expires_at, is_revoked) VALUES (?1, ?2, ?3, ?4, ?5, 0)",
-        params![id, app_name, key_hash, created_at, expires_at],
+        "INSERT INTO api_keys (id, app_name, key_hash, created_at, expires_at, is_revoked, scope) VALUES (?1, ?2, ?3, ?4, ?5, 0, ?6)",
+        params![id, app_name, key_hash, created_at, expires_at, scope],
     )?;
     Ok(())
 }
@@ -207,7 +209,7 @@ pub fn revoke_api_key(conn: &Connection, id: &str) -> Result<bool> {
 
 pub fn list_all_keys(conn: &Connection) -> Result<Vec<ApiKeyRecord>> {
     let mut stmt = conn.prepare(
-        "SELECT id, app_name, key_hash, created_at, expires_at, is_revoked FROM api_keys ORDER BY created_at DESC",
+        "SELECT id, app_name, key_hash, created_at, expires_at, is_revoked, COALESCE(scope, 'read') FROM api_keys ORDER BY created_at DESC",
     )?;
     let rows = stmt.query_map([], |row| {
         let is_revoked_int: i32 = row.get(5)?;
@@ -218,6 +220,7 @@ pub fn list_all_keys(conn: &Connection) -> Result<Vec<ApiKeyRecord>> {
             created_at: row.get(3)?,
             expires_at: row.get(4)?,
             is_revoked: is_revoked_int != 0,
+            scope: row.get(6)?,
         })
     })?;
 

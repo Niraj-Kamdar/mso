@@ -23,15 +23,17 @@ pub enum Source {
     Hyperliquid,
     Jupiter,
     Yahoo,
+    Push,
 }
 
 impl Source {
-    pub const ALL: [Source; 5] = [
+    pub const ALL: [Source; 6] = [
         Source::BinanceWs,
         Source::Binance,
         Source::Hyperliquid,
         Source::Jupiter,
         Source::Yahoo,
+        Source::Push,
     ];
 
     pub fn label(self) -> &'static str {
@@ -41,6 +43,7 @@ impl Source {
             Source::Hyperliquid => "hyperliquid",
             Source::Jupiter => "jupiter",
             Source::Yahoo => "yahoo",
+            Source::Push => "push",
         }
     }
 }
@@ -165,6 +168,7 @@ impl Config {
             Source::Hyperliquid => self.poll_secs.hyperliquid,
             Source::Jupiter => self.poll_secs.jupiter,
             Source::Yahoo => self.poll_secs.yahoo,
+            Source::Push => 1, // Push sources don't poll, but return 1s for resolution calculation
         })
     }
 

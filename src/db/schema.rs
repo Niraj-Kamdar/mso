@@ -1,5 +1,40 @@
 use rusqlite::{Connection, Result};
 
+fn migrate_schema(conn: &Connection) -> Result<()> {
+    // Check if api_keys table exists and if scope column is missing
+    let has_scope_column: bool = conn
+        .query_row(
+            "SELECT COUNT(*) FROM pragma_table_info('api_keys') WHERE name='scope'",
+            [],
+            |row| {
+                let count: i32 = row.get(0)?;
+                Ok(count > 0)
+            },
+        )
+        .unwrap_or(false);
+
+    if !has_scope_column {
+        // Check if api_keys table exists at all
+        let table_exists: bool = conn
+            .query_row(
+                "SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name='api_keys'",
+                [],
+                |row| {
+                    let count: i32 = row.get(0)?;
+                    Ok(count > 0)
+                },
+            )
+            .unwrap_or(false);
+
+        if table_exists {
+            // Add scope column to existing table with default 'read'
+            conn.execute("ALTER TABLE api_keys ADD COLUMN scope TEXT NOT NULL DEFAULT 'read'", [])?;
+        }
+    }
+
+    Ok(())
+}
+
 pub fn init_schema(conn: &Connection) -> Result<()> {
     // High-performance Pragmas for NVMe
     conn.execute_batch(
@@ -8,7 +43,14 @@ pub fn init_schema(conn: &Connection) -> Result<()> {
         PRAGMA synchronous = NORMAL;
         PRAGMA cache_size = -32000; -- 32 MB cache
         PRAGMA temp_store = MEMORY;
+        "#,
+    )?;
 
+    // Run migrations for existing databases
+    migrate_schema(conn)?;
+
+    conn.execute_batch(
+        r#"
         -- 1. Raw Ticks (24-hour retention)
         CREATE TABLE IF NOT EXISTS ticks (
             symbol TEXT NOT NULL,
@@ -68,7 +110,8 @@ pub fn init_schema(conn: &Connection) -> Result<()> {
             key_hash TEXT NOT NULL UNIQUE,
             created_at INTEGER NOT NULL,
             expires_at INTEGER,          -- NULL = unlimited/permanent
-            is_revoked INTEGER NOT NULL DEFAULT 0
+            is_revoked INTEGER NOT NULL DEFAULT 0,
+            scope TEXT NOT NULL DEFAULT 'read'  -- 'read' or 'write'
         );
         CREATE INDEX IF NOT EXISTS idx_api_keys_lookup ON api_keys(key_hash);
         "#,

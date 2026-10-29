@@ -66,6 +66,9 @@ enum KeyCommands {
         #[arg(long, help = "Time-to-live in days (omit for unlimited duration)")]
         ttl_days: Option<i64>,
 
+        #[arg(long, default_value = "read", help = "Key scope: 'read' for queries, 'write' for pushing ticks")]
+        scope: String,
+
         #[arg(long, default_value = "oracle.db")]
         db: String,
     },
@@ -127,13 +130,14 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
             // Check if any keys exist. If not, auto-generate initial bootstrap key
             let existing_keys = auth_mgr.list_keys()?;
             if existing_keys.is_empty() {
-                let (id, secret) = auth_mgr.create_key("pnl-backend-bootstrap", None)?;
+                let (id, secret) = auth_mgr.create_key("pnl-backend-bootstrap", None, auth::ApiKeyScope::Read)?;
                 warn!("---------------------------------------------------------------");
                 warn!("⚠️  No API keys found. Generated initial bootstrap key:");
                 warn!("   App: pnl-backend-bootstrap");
                 warn!("   ID:  {}", id);
                 warn!("   KEY: {}", secret);
                 warn!("   TTL: Unlimited");
+                warn!("   Scope: read");
                 warn!("   Add this to your downstream apps (e.g. pnl-backend ORACLE_API_KEY)");
                 warn!("---------------------------------------------------------------");
             } else {
@@ -155,18 +159,28 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         }
 
         Commands::Key { action } => match action {
-            KeyCommands::Create { app, ttl_days, db } => {
+            KeyCommands::Create { app, ttl_days, scope, db } => {
                 let db_mgr = DbManager::new(&db)?;
                 let auth_mgr = AuthManager::new(db_mgr)?;
 
+                let key_scope = match scope.to_lowercase().as_str() {
+                    "read" => auth::ApiKeyScope::Read,
+                    "write" => auth::ApiKeyScope::Write,
+                    _ => {
+                        eprintln!("\n❌ Invalid scope '{}'. Must be 'read' or 'write'.\n", scope);
+                        std::process::exit(1);
+                    }
+                };
+
                 let ttl_ms = ttl_days.map(|d| d * 24 * 60 * 60 * 1000);
-                match auth_mgr.create_key(&app, ttl_ms) {
+                match auth_mgr.create_key(&app, ttl_ms, key_scope) {
                     Ok((id, secret)) => {
                         println!("\n✅ API Key Created Successfully!");
                         println!("==================================================");
                         println!("App Name:   {}", app);
                         println!("Key ID:     {}", id);
                         println!("API Secret: {}", secret);
+                        println!("Scope:      {}", key_scope.as_str());
                         if let Some(days) = ttl_days {
                             println!("Expires In: {} days", days);
                         } else {
@@ -205,9 +219,9 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
                 match auth_mgr.list_keys() {
                     Ok(keys) => {
                         println!("\nRegistered API Keys (Quota: {}/100 active)", keys.iter().filter(|k| !k.is_revoked).count());
-                        println!("---------------------------------------------------------------------------------------------------------");
-                        println!("{:<36} {:<24} {:<10} {:<20}", "Key ID", "App Name", "Status", "Expires At");
-                        println!("---------------------------------------------------------------------------------------------------------");
+                        println!("---------------------------------------------------------------------------------------------------------------------");
+                        println!("{:<36} {:<24} {:<10} {:<8} {:<20}", "Key ID", "App Name", "Status", "Scope", "Expires At");
+                        println!("---------------------------------------------------------------------------------------------------------------------");
                         for k in keys {
                             let status = if k.is_revoked { "REVOKED" } else { "ACTIVE" };
                             let exp = match k.expires_at {
@@ -217,9 +231,9 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
                                 }
                                 None => "Never".to_string(),
                             };
-                            println!("{:<36} {:<24} {:<10} {:<20}", k.id, k.app_name, status, exp);
+                            println!("{:<36} {:<24} {:<10} {:<8} {:<20}", k.id, k.app_name, status, k.scope, exp);
                         }
-                        println!("---------------------------------------------------------------------------------------------------------\n");
+                        println!("---------------------------------------------------------------------------------------------------------------------\n");
                     }
                     Err(e) => {
                         eprintln!("\n❌ Error listing keys: {}\n", e);
