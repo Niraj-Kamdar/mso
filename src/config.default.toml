@@ -10,17 +10,34 @@ binance = 60
 hyperliquid = 60
 jupiter = 60
 yahoo = 60
+uniswap = 60
 
 [retention]
 ticks_hours = 24
 candles_1m_days = 7
 candles_1h_days = 90
 
+# Source-specific settings.
+#
+# uniswap: on-chain Uniswap V3 TWAP read via `observe()` on Ethereum mainnet.
+#   Requires MSO_ETH_RPC_URL (or ETH_RPC_URL, a mainnet JSON-RPC endpoint) in the environment.
+#   Non-loopback endpoints must use HTTPS.
+#   twap: look-back window for the time-weighted average price.
+#         "hot" (1 min) | "warm" (10 min) | "cool" (30 min) | "cold" (1 hour)
+#         | { custom = <seconds> }   (1 .. 604800)
+#   Longer windows are harder to manipulate but lag spot. The leg that uses
+#   uniswap can override it: `twap = ...` on the asset when uniswap is the
+#   primary source, or inside `fallback = { source = "uniswap", ..., twap = ... }`.
+[feeds.uniswap]
+twap = "warm"
+
 # One entry per served symbol.
-#   source: binance-ws | binance | hyperliquid | jupiter | yahoo
+#   source: binance-ws | binance | hyperliquid | jupiter | yahoo | uniswap
 #   id:     identifier at that source:
 #           binance pair (SOLUSDT), hyperliquid coin (HYPE),
-#           Solana mint (jupiter), ticker (yahoo)
+#           Solana mint (jupiter), ticker (yahoo),
+#           V3 pool contract address (uniswap) - the price is token0 quoted
+#           in token1, so pick a pool whose token order matches the symbol.
 #   fallback (optional): another source + id used only while the primary
 #           price is older than max(2 x primary resolution, 5s).
 #           Hyperliquid fallbacks are perp mid prices (small basis vs spot).
@@ -91,3 +108,13 @@ symbol = "TSLA/USD"
 source = "jupiter"
 id = "XsDoVfqeBukxuZHWhdvWHBhgEHjGNst4MLodqsJHzoB"
 fallback = { source = "yahoo", id = "TSLA" }
+
+# Ethereum mainnet via Uniswap V3 TWAP (needs MSO_ETH_RPC_URL or ETH_RPC_URL). The id is the
+# pool contract; WETH/USDT 0.05% has token0 = WETH, token1 = USDT, so the
+# feed reports WETH priced in USDT.
+# [[assets]]
+# symbol = "WETH/USDT"
+# source = "uniswap"
+# id = "0x11b815efB8f581194ae79006d24E0d814B7697F6"
+# twap = "hot"                              # optional override (uniswap is the primary here)
+# fallback = { source = "binance", id = "ETHUSDT" }

@@ -121,6 +121,21 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
                 config::supported_symbols()
             );
 
+            // Uniswap needs a mainnet RPC endpoint; refuse to start half-configured.
+            let pools = config::get().ids_for(config::Source::Uniswap);
+            if !pools.is_empty() {
+                let url = feed::uniswap::rpc_url()?;
+                info!(
+                    "Uniswap V3 TWAP via {} ({} pools, default window {})",
+                    feed::uniswap::redact_url(&url),
+                    pools.len(),
+                    config::get().feeds.uniswap.twap.label()
+                );
+                for pool in &pools {
+                    info!("  {} -> twap {}", pool, config::get().twap_window(pool).label());
+                }
+            }
+
             let db_mgr = DbManager::new(&db)?;
             let auth_mgr = AuthManager::new(db_mgr.clone())?;
 
@@ -211,10 +226,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
                         for k in keys {
                             let status = if k.is_revoked { "REVOKED" } else { "ACTIVE" };
                             let exp = match k.expires_at {
-                                Some(ts) => {
-                                    let dt = chrono_placeholder(ts);
-                                    dt
-                                }
+                                Some(ts) => chrono_placeholder(ts),
                                 None => "Never".to_string(),
                             };
                             println!("{:<36} {:<24} {:<10} {:<20}", k.id, k.app_name, status, exp);

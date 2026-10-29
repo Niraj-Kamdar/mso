@@ -37,7 +37,9 @@ COPY --from=builder --chown=65532:65532 /data /data
 USER 65532:65532
 WORKDIR /data
 
-# Default production configuration
+# Default production configuration.
+# Optional: MSO_CONFIG=/config/mso.toml, MSO_ETH_RPC_URL=<Ethereum mainnet JSON-RPC>
+# (the latter is required when the config contains uniswap assets).
 ENV MSO_HTTP_ADDR=0.0.0.0:4000 \
     MSO_GRPC_ADDR=0.0.0.0:50051 \
     MSO_DB_PATH=/data/oracle.db \
