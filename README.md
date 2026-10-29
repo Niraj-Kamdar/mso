@@ -42,6 +42,8 @@ docker run -d \
   -p 4000:4000 \
   -p 50051:50051 \
   -v mso-data:/data \
+  -v $(pwd)/mso.toml:/config/mso.toml:ro \
+  -e MSO_CONFIG=/config/mso.toml \
   ghcr.io/niraj-kamdar/mso:latest
 ```
 
@@ -65,8 +67,8 @@ docker compose up -d
 # Build release binary
 cargo build --release
 
-# Run Oracle node (starts feeds, rollups, REST & gRPC servers)
-./target/release/mso serve
+# Run Oracle node with production config (starts feeds, rollups, REST & gRPC servers)
+./target/release/mso serve --config mso.toml
 ```
 
 ---
@@ -205,7 +207,7 @@ After=network.target
 Type=simple
 User=pi
 WorkingDirectory=/home/pi/mso
-ExecStart=/home/pi/mso/target/release/mso serve --db /home/pi/mso/oracle.db
+ExecStart=/home/pi/mso/target/release/mso serve --db /home/pi/mso/oracle.db --config /home/pi/mso/mso.toml
 Restart=always
 RestartSec=5
 LimitNOFILE=65536

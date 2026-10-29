@@ -4,11 +4,12 @@
 
 # One shared Jupiter interval = one batched call for all 11 ids (lite-api.jup.ag,
 # mso's default). Deployed at 2s; 1s tested clean on lite-api (keyless api.jup.ag
-# 429s at 1s). Binance REST is fallback-only (fetched just while a Jupiter price
-# is stale), so a 5s poll is cheap and fails over fast.
+# 429s at 1s). Binance and Yahoo REST are fallback-only (fetched just while a
+# Jupiter price is stale), so a 5s poll is cheap and fails over fast.
 [poll_secs]
 jupiter = 2
 binance = 5
+yahoo = 5
 uniswap = 30
 
 # Ethereum mainnet via Uniswap V3 TWAP. Needs MSO_ETH_RPC_URL in the environment
